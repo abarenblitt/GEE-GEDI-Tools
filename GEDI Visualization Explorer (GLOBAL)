@@ -1,0 +1,537 @@
+// //=====================================================================================================================
+// //                                        NASA - University of Maryland (ESSIC)
+// // Code: GEDI Visualization Explorer (GLOBAL)
+// // Written by: Abigail Barenblitt NASA Goddard and University of Maryland 
+// // Objective: This code creates an app for viewing GEE GEDI assets and downloading data over an area of interest 
+//     Date: 12/14/2022
+//     Version: 1.0
+//     Copyright 2022 Abigail Barenblitt 
+//     Permission is hereby granted, free of charge, to any person obtaining a copy
+//     of this software and associated documentation files (the "Software"), to deal
+//     in the Software without restriction, including without limitation the rights
+//     to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+//     copies of the Software, and to permit persons to whom the Software is
+//     furnished to do so, subject to the following conditions:
+//     The above copyright notice and this permission notice shall be included in all
+//     copies or substantial portions of the Software.
+//     THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+//     IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+//     FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+//     AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+//     LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+//     OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+//     SOFTWARE.'''
+
+//look at my code here: https://github.com/abarenblitt/______________________________________
+// //=====================================================================================================================
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////          Setting Up App Design                 ///////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+// ///////////////////////////////////////////////////////////////
+// //                    1) Import Layers of Interest           //
+// ///////////////////////////////////////////////////////////////
+
+var L2A = ee.ImageCollection("LARSE/GEDI/GEDI02_A_002_MONTHLY")
+var L4B = ee.Image("LARSE/GEDI/GEDI04_B_002")
+var L2B = ee.ImageCollection("LARSE/GEDI/GEDI02_B_002_MONTHLY")
+
+
+// ///////////////////////////////////////////////////////////////
+// //                    2) Set up Map Visualization            //
+// ///////////////////////////////////////////////////////////////
+
+//Set map center
+Map.setCenter(6.7,7.1,7)
+
+// set basemap style to gray or dark 
+var GRAYMAP = [{
+    stylers: [ { saturation: -100 } ],},
+    { // Dial down the label darkness.
+    elementType: 'labels',
+    stylers: [ { lightness: 10 } ]
+  },{ // Simplify the road geometries.
+    featureType: 'road',
+    elementType: 'geometry',
+    stylers: [ { visibility: 'simplified' } ]
+  },{ // Turn off road labels.
+    featureType: 'road',
+    elementType: 'labels',
+    stylers: [ { visibility: 'off' } ]
+  },{ // Turn off all icons.
+    elementType: 'labels.icon',
+    stylers: [ { visibility: 'off' } ]
+  },{ // Turn off all POIs.
+    featureType: 'poi',
+    elementType: 'all',
+    stylers: [ { visibility: 'off' }]
+  }
+];
+
+//Apply Basemap
+Map.setOptions('Gray Map', {'Gray Map': GRAYMAP})//.setControlVisibility(false, false, false, false, false, false);
+
+//Set cursor style
+Map.style().set('cursor', 'crosshair');
+
+// ///////////////////////////////////////////////////////////////
+// //                    3) Set up text and panels             //
+// ///////////////////////////////////////////////////////////////
+
+var title = 
+      ui.Label({
+        value: 'Global GEDI Visualization Explorer',
+        style: {fontWeight: 'bold', fontSize: '24px', margin: '10px 5px'}
+      });
+var text = ui.Label({
+    value:'Use this app to explore available GEDI data. Toggle the checkboxes below to view different datasets. To create histograms of values for each image, draw a geometry around your Area of Interest.',
+    style: {fontSize: '14px',
+    fontWeight: 'bold',
+    color: '000000'
+      }
+});
+
+var text2 = ui.Label({
+    value:'Citation: Barenblitt, A. 2022. Global GEDI Visualization Explorer. https://mangrovescience.earthengine.app/view/GlobalGEDIExplorer',
+    style: {fontSize: '14px',
+    fontWeight: 'bold',
+    color: '0000FF'
+      }
+});
+
+var panel0 = ui.Panel();
+panel0.style().set({
+  maxWidth: '450px',
+  position: 'top-left'
+});
+
+
+var lablay = ui.Label({
+    value:'Display Layers',
+    style: {fontSize: '14px',
+    fontWeight: 'bold',
+    color: '000000'
+      }
+});
+
+// ///////////////////////////////////////////////////////////////
+// //                    4) Create widgets (functions later)   //
+// ///////////////////////////////////////////////////////////////
+
+//CheckBoxes
+var extCheck1 = ui.Checkbox('L2A Top of Canopy').setValue(false);
+var extCheck2 = ui.Checkbox('L4B Aboveground Biomass').setValue(false);
+var extCheck3 = ui.Checkbox('L2B Canopy Cover Vertical Profile Metrics').setValue(false);
+
+//Export Buttons
+var expButton = ui.Button({
+              label: 'Export results to Drive'
+              // React to the button's click event.
+    })
+
+//Chart Label
+var chartLab = ui.Label({value:'To calculate a new geometry, delete this geometry and redraw.',
+          style: {fontWeight: 'bold', fontSize: '16px', margin: '10px 5px'}})
+
+
+// ///////////////////////////////////////////////////////////////
+// //                    5) Legend Vizualization                //
+// ///////////////////////////////////////////////////////////////
+
+//Get legend palettes
+var palettes = require('users/gena/packages:palettes');
+var paletteL2A = palettes.cmocean.Speed[7];
+var paletteL4B = palettes.matplotlib.magma[7].reverse();
+var paletteL2B = palettes.matplotlib.viridis[7];
+
+// Create the legend container and the panel first
+var makeRow = function(color, name) {
+      var colorBox = ui.Label({
+        style: {
+          backgroundColor: '#' + color,
+          // Use padding to give the box height and width.
+          padding: '8px',
+          margin: '0 0 4px 0'
+        }
+      });
+      var description = ui.Label({
+        value: name,
+        style: {margin: '0 0 4px 6px'}
+      });
+      return ui.Panel({
+        widgets: [colorBox, description],
+        layout: ui.Panel.Layout.Flow('horizontal')
+      });
+};
+
+//Set up legend panels
+var legendPaneTOC = ui.Panel({style: {position: 'bottom-right', padding: '8px'}});
+var legendPanelAGB = ui.Panel({style: {position: 'bottom-right', padding: '8px'}});
+var legendPanelHT = ui.Panel({style: {position: 'bottom-right', padding: '8px'}});
+
+// Add legend label
+var legendDescription = ui.Label({
+  value: 'Legend', 
+  style: {fontSize: '13px',
+    fontWeight: 'bold',
+    //color: '#9E9E9E',
+    padding: '1px'}
+}); 
+
+// L2A 
+////////////////////////////////////////////////////////////////
+var TOC_STYLE = {
+  min: 0,
+  max: 1,
+  palette: paletteL2A
+};
+var TOC_VIS_MAX_VALUE = 30;
+var TOC_VIS_NONLINEARITY = 1;
+function colorStretch_TOC(image) {
+  return image.divide(TOC_VIS_MAX_VALUE)
+      .pow(1 / TOC_VIS_NONLINEARITY);
+}
+function undoColorStretch_TOC(val) {
+  return Math.pow(val, TOC_VIS_NONLINEARITY) * TOC_VIS_MAX_VALUE;
+}
+function ColorBar(palette) {
+  return ui.Thumbnail({
+    image: ee.Image.pixelLonLat().select(0),
+    params: {
+      bbox: [0, 0, 1, 0.1],
+      dimensions: '100x10',
+      format: 'png',
+      min: 0,
+      max: 1,
+      palette: palette,
+    },
+    style: {stretch: 'horizontal', margin: '0px 8px'},
+  });
+}
+function makeLegend_TOC() {
+  var labelPanel = ui.Panel(
+      [
+        ui.Label(Math.round(undoColorStretch_TOC(0)), {margin: '4px 8px'}),
+        ui.Label(
+            Math.round(undoColorStretch_TOC(0.5)),
+            {margin: '4px 8px', textAlign: 'center', stretch: 'horizontal'}),
+        ui.Label(Math.round(undoColorStretch_TOC(1)), {margin: '4px 8px'})
+      ],
+      ui.Panel.Layout.flow('horizontal'));
+  return ui.Panel([ColorBar(TOC_STYLE.palette), labelPanel]);
+}
+// Styling for the legend title.
+var LEGEND_TITLE_STYLE_TOC = {
+  fontSize: '14px',
+  fontWeight: 'bold',
+  stretch: 'horizontal',
+  textAlign: 'center',
+  margin: '4px',
+};
+// Styling for the legend footnotes.
+var LEGEND_FOOTNOTE_STYLE_TOC = {
+  fontSize: '12px',
+  stretch: 'horizontal',
+  textAlign: 'center',
+  margin: '4px',
+};
+var TOCLegend = ui.Panel(
+    [
+      ui.Label('Top of Canopy', LEGEND_TITLE_STYLE_TOC), makeLegend_TOC(),
+      ui.Label(
+          '(Height [M])', LEGEND_FOOTNOTE_STYLE_TOC),
+    ],
+    ui.Panel.Layout.flow('vertical'),
+    {width: '400px', position: 'bottom-left'});
+
+
+//L4B Aboveground Biomass
+///////////////////////////////////////////////////
+var AGB_STYLE = {
+  min: 0,
+  max: 1,
+  palette: paletteL4B
+};
+var AGB_VIS_MAX_VALUE = 200;
+var AGB_VIS_NONLINEARITY = 1;
+function colorStretch_AGB(image) {
+  return image.divide(AGB_VIS_MAX_VALUE)
+      .pow(1 / AGB_VIS_NONLINEARITY);
+}
+function undoColorStretch_AGB(val) {
+  return Math.pow(val, AGB_VIS_NONLINEARITY) * AGB_VIS_MAX_VALUE;
+}
+function ColorBar(palette) {
+  return ui.Thumbnail({
+    image: ee.Image.pixelLonLat().select(0),
+    params: {
+      bbox: [0, 0, 1, 0.1],
+      dimensions: '100x10',
+      format: 'png',
+      min: 0,
+      max: 1,
+      palette: palette,
+    },
+    style: {stretch: 'horizontal', margin: '0px 8px'},
+  });
+}
+function makeLegend_AGB() {
+  var labelPanel = ui.Panel(
+      [
+        ui.Label(Math.round(undoColorStretch_AGB(0)), {margin: '4px 8px'}),
+        ui.Label(
+            Math.round(undoColorStretch_AGB(0.5)),
+            {margin: '4px 8px', textAlign: 'center', stretch: 'horizontal'}),
+        ui.Label(Math.round(undoColorStretch_AGB(1)), {margin: '4px 8px'})
+      ],
+      ui.Panel.Layout.flow('horizontal'));
+  return ui.Panel([ColorBar(AGB_STYLE.palette), labelPanel]);
+}
+// Styling for the legend title.
+var LEGEND_TITLE_STYLE_AGB = {
+  fontSize: '14px',
+  fontWeight: 'bold',
+  stretch: 'horizontal',
+  textAlign: 'center',
+  margin: '4px',
+};
+// Styling for the legend footnotes.
+var LEGEND_FOOTNOTE_STYLE_AGB = {
+  fontSize: '12px',
+  stretch: 'horizontal',
+  textAlign: 'center',
+  margin: '4px',
+};
+var AboveGroundBiomassLegend = ui.Panel(
+    [
+      ui.Label('Aboveground Biomass', LEGEND_TITLE_STYLE_AGB), makeLegend_AGB(),
+      ui.Label(
+          '(Biomass in megagrams of carbon per hectare [MgC.ha⁻¹])', LEGEND_FOOTNOTE_STYLE_AGB),
+    ],
+    ui.Panel.Layout.flow('vertical'),
+    {width: '400px', position: 'bottom-left'});
+
+
+// L2B Canopy Cover
+/////////////////////////////////////////////////////
+
+var HT_STYLE = {
+  min: 0,
+  max: 1,
+  palette: paletteL2B
+};
+var HT_VIS_MAX_VALUE = 100;
+var HT_VIS_NONLINEARITY = 1;
+function colorStretch_HT(image) {
+  return image.divide(HT_VIS_MAX_VALUE)
+      .pow(1 / HT_VIS_NONLINEARITY);
+}
+function undoColorStretch_HT(val) {
+  return Math.pow(val, HT_VIS_NONLINEARITY) * HT_VIS_MAX_VALUE;
+}
+function ColorBar(palette) {
+  return ui.Thumbnail({
+    image: ee.Image.pixelLonLat().select(0),
+    params: {
+      bbox: [0, 0, 1, 0.1],
+      dimensions: '100x10',
+      format: 'png',
+      min: 0,
+      max: 1,
+      palette: palette,
+    },
+    style: {stretch: 'horizontal', margin: '0px 8px'},
+  });
+}
+function makeLegend_HT() {
+  var labelPanel = ui.Panel(
+      [
+        ui.Label(Math.round(undoColorStretch_HT(0)), {margin: '4px 8px'}),
+        ui.Label(
+            Math.round(undoColorStretch_HT(0.5)),
+            {margin: '4px 8px', textAlign: 'center', stretch: 'horizontal'}),
+        ui.Label(Math.round(undoColorStretch_HT(1)), {margin: '4px 8px'})
+      ],
+      ui.Panel.Layout.flow('horizontal'));
+  return ui.Panel([ColorBar(HT_STYLE.palette), labelPanel]);
+}
+// Styling for the legend title.
+var LEGEND_TITLE_STYLE_HT = {
+  fontSize: '14px',
+  fontWeight: 'bold',
+  stretch: 'horizontal',
+  textAlign: 'center',
+  margin: '4px',
+};
+// Styling for the legend footnotes.
+var LEGEND_FOOTNOTE_STYLE_HT = {
+  fontSize: '12px',
+  stretch: 'horizontal',
+  textAlign: 'center',
+  margin: '4px',
+};
+var CanopyHeightLegend = ui.Panel(
+    [
+      ui.Label('Canopy Cover', LEGEND_TITLE_STYLE_HT), makeLegend_HT(),
+      ui.Label(
+          '(Percent (%)', LEGEND_FOOTNOTE_STYLE_HT),
+    ],
+    ui.Panel.Layout.flow('vertical'),
+    {width: '400px', position: 'bottom-left'});
+
+
+// ///////////////////////////////////////////////////////////////
+// //                    6) Logo visualization                  //
+// ///////////////////////////////////////////////////////////////
+
+//Import logos
+var logo = ee.Image("projects/mangrovescience/GoddardLogo");
+var logo2 = ee.Image("projects/mangrovescience/SDGLogo");
+
+//Add thumbnail visualizations
+var branding = ui.Thumbnail({image:logo,params:{bands:['b1','b2','b3'],min:0,max:200},
+style:{width:'133px',height:'140px',position:'bottom-right',padding: '10px'}});
+var branding2 = ui.Thumbnail({image:logo2,params:{bands:['b1','b2','b3'],min:0,max:255},
+style:{width:'133px',height:'140px',position:'bottom-left',padding: '10px'}});
+
+//Create panel to hold logos
+var logoPan = ui.Panel({
+  style: {
+    width:'300px',
+    height:'150px',
+    position: 'bottom-left',
+    padding: '8px'
+  }
+}).setLayout(ui.Panel.Layout.absolute());
+
+//Add logos to panel
+logoPan.add(branding).add(branding2)
+
+//Add panel to map
+Map.add(logoPan)
+
+// ///////////////////////////////////////////////////////////////
+// //    7) Add widgets to panel and inset panel in map         //
+// ///////////////////////////////////////////////////////////////
+panel0.add(title).add(text).add(text2).add(lablay).add(extCheck1).add(extCheck2).add(extCheck3)
+.add(expButton)
+.add(chartLab)
+.add(legendDescription).add(TOCLegend).add(AboveGroundBiomassLegend).add(CanopyHeightLegend)
+
+
+ui.root.insert(4,panel0)
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////          Setting Up Map Functionality          ///////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// ///////////////////////////////////////////////////////////////
+// //    8) Set up Drawing Tools for the app                   //
+// ///////////////////////////////////////////////////////////////
+var drawingTools = Map.drawingTools();
+
+//Limit drawing tools to polyon and rectangle
+Map.drawingTools().setDrawModes(['polygon'])
+
+// Don't make imports that correspond to the drawn points.
+Map.drawingTools().setLinked(false);
+
+// Add an empty layer to hold the drawn points.
+Map.drawingTools().addLayer([]);
+
+// Set the geometry type to be point.
+Map.drawingTools().setShape('polygon');
+
+// Create a panel to hold result widget.
+var inspector = ui.Panel({style: {maxWidth: '450px',
+  position: 'top-left'}});
+
+panel0.add(inspector);
+
+//Begin GUI capabilities. This will ensure that when geometries are drawn, calculations get run
+Map.drawingTools().onDraw(function(){
+  
+//Ensure panel clears with each new click and displays new graph
+inspector.clear()
+
+var drawn = Map.drawingTools().layers().get(0).toGeometry();
+Map.drawingTools().setLinked(false);
+
+// ///////////////////////////////////////////////////////////////
+// //    9) Begin set up for histograms                        //
+// ///////////////////////////////////////////////////////////////
+var options = {
+  title: 'L2A Top of Canopy',
+  fontSize: 12,
+  hAxis: {title: 'Height [m]'},
+  vAxis: {title: 'Count'}}
+  
+var options2 = {
+  title: 'L4B AGB',
+  fontSize: 12,
+  hAxis: {title: 'AGB [MgC.ha⁻¹]'},
+  vAxis: {title: 'Count'}}
+  
+var options3 = {
+  title: 'L2B Canopy Height',
+  fontSize: 12,
+  hAxis: {title: 'Height [m]'},
+  vAxis: {title: 'Count'}}
+  
+//Clip all layers to AOI
+var l2 = L2A.median().clip(drawn)
+var l4 = L4B.clip(drawn)
+var lcan = L2B.median().clip(drawn)
+
+//Create Map layers 
+var l2a = ui.Map.Layer(l2.select('rh97'),{palette: paletteL2A, min:-20, max:30}, 'L2A',false)
+var l4b = ui.Map.Layer(l4.select('MU'),{palette: paletteL4B, min:0,max:200},'L4B',false)
+var l2b = ui.Map.Layer(lcan.select('cover'), {palette: paletteL2B, min:-0.3, max:0.7},'L2B',false)
+
+//Create chart histogram
+var chart = ui.Chart.image.histogram(l2.select('rh97'),drawn,1000).setOptions(options)
+var chart2 = ui.Chart.image.histogram(l4.select('MU'),drawn,1000).setOptions(options2)
+var chart3 = ui.Chart.image.histogram(lcan.select('cover'),drawn,1000).setOptions(options3)
+
+//Add layers to map when polygon is drawn
+Map.add(l2a).add(l4b).add(l2b)
+
+// ///////////////////////////////////////////////////////////////
+// //    9) Add widgets functionality                          //
+// ///////////////////////////////////////////////////////////////
+
+//Checkbox functions
+extCheck1.onChange(function(checked){
+  l2a.setShown(checked)
+})
+
+extCheck2.onChange(function(checked){
+  l4b.setShown(checked)
+})
+
+extCheck3.onChange(function(checked){
+  l2b.setShown(checked)
+})
+
+//Export button functions
+expButton.onClick(function() {
+              // Export the image to Drive.
+              Export.image.toDrive({
+              image: l2.clip(drawn),
+              scale:25,
+              description: 'L2ATopofCanopy'})
+              Export.image.toDrive({
+              image: l4.select('MU').clip(drawn),
+              description: 'L4BAbovegroundBiomass'})
+              Export.image.toDrive({
+              image: lcan.clip(drawn),
+              scale:25,
+              description: 'L2BCanopyCover'})
+        });
+
+//Add charts to panel when polygon is drawn
+panel0.add(inspector.clear().add(chart).add(chart2).add(chart3));
+
+});
